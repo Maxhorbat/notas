@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Notas — Supabase</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- Librería de Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root{
+    --bg: #0F1419;
+    --surface: #171D25;
+    --surface-2: #1E2630;
+    --line: #2B3542;
+    --amber: #F0B429;
+    --teal: #5EEAD4;
+    --text: #E8E6E1;
+    --muted: #8B95A1;
+    --danger: #E8635A;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -5%, rgba(240,180,41,0.08), transparent),
+      radial-gradient(ellipse 900px 600px at 90% 20%, rgba(94,234,212,0.06), transparent),
+      var(--bg);
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    min-height:100vh;
+    padding:56px 20px;
+  }
+  .wrap{max-width:640px; margin:0 auto;}
+  .eyebrow{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--teal); display:flex; align-items:center; gap:10px; margin-bottom:16px;
+  }
+  .eyebrow::before{content:''; width:7px; height:7px; background:var(--teal); border-radius:50%; box-shadow:0 0 10px var(--teal);}
+  h1{
+    font-family:'JetBrains Mono', monospace; font-weight:800; font-size:clamp(30px,6vw,42px);
+    letter-spacing:-0.02em;
+  }
+  h1 span{color:var(--amber);}
+  .subtitle{margin-top:12px; color:var(--muted); font-size:15px; max-width:480px;}
+
+  .status-badge{
+    margin-top:20px; display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono',monospace; font-size:12px; padding:8px 14px;
+    border-radius:20px; border:1px solid var(--line); background:var(--surface);
+  }
+  .status-badge .led{width:8px; height:8px; border-radius:50%; background:var(--muted); transition:background .2s;}
+  .status-badge.online .led{background:var(--teal); box-shadow:0 0 8px var(--teal);}
+  .status-badge.offline .led{background:var(--amber); box-shadow:0 0 8px var(--amber);}
+  .status-badge.checking .led{animation:pulse 1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+
+  .panel{
+    margin-top:22px; background:var(--surface); border:1px solid var(--line);
+    border-radius:12px; padding:22px; box-shadow:0 30px 60px -25px rgba(0,0,0,0.6);
+  }
+  .input-row{display:flex; gap:10px;}
+  input[type=text]{
+    flex:1; background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
+    padding:12px 14px; color:var(--text); font-family:'Inter',sans-serif; font-size:14.5px; outline:none;
+    transition:border-color .15s;
+  }
+  input[type=text]:focus{border-color:var(--teal);}
+  input[type=text]::placeholder{color:var(--muted);}
+  button.add{
+    background:var(--amber); color:#0F1419; border:none; border-radius:8px;
+    padding:0 20px; font-family:'JetBrains Mono',monospace; font-weight:700; font-size:14px;
+    cursor:pointer; transition:opacity .15s;
+  }
+  button.add:hover{opacity:.88;}
+  button.add:disabled{opacity:.5; cursor:not-allowed;}
+
+  .list{margin-top:18px; display:flex; flex-direction:column; gap:8px;}
+  .note{
+    display:flex; align-items:center; gap:12px; background:var(--surface-2);
+    border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+    animation:slideIn .25s ease;
+  }
+  @keyframes slideIn{from{opacity:0; transform:translateY(-6px);} to{opacity:1; transform:translateY(0);}}
+  .note .dot{width:6px; height:6px; border-radius:50%; background:var(--teal); flex-shrink:0;}
+  .note span{flex:1; font-size:14.5px; word-break:break-word;}
+  .note time{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); white-space:nowrap;}
+  .note button.del{
+    background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px;
+    line-height:1; padding:2px 6px; border-radius:4px; transition:color .15s, background .15s;
+  }
+  .note button.del:hover{color:var(--danger); background:rgba(232,99,90,0.1);}
+
+  .empty{
+    text-align:center; padding:30px 10px; color:var(--muted); font-size:13.5px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  .footer-row{
+    margin-top:18px; padding-top:16px; border-top:1px dashed var(--line);
+    display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .count{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted);}
+  .count b{color:var(--amber);}
+  button.clear{
+    background:none; border:1px solid var(--line); color:var(--muted);
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; padding:7px 12px; border-radius:6px;
+    cursor:pointer; transition:border-color .15s, color .15s;
+  }
+  button.clear:hover{border-color:var(--danger); color:var(--danger);}
+
+  .note-status{
+    margin-top:14px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);
+    display:flex; align-items:center; gap:8px; min-height:16px;
+  }
+  .note-status .ok{color:var(--teal); opacity:0; transition:opacity .3s;}
+  .note-status .ok.show{opacity:1;}
+
+  .banner{
+    margin-top:22px; background:rgba(240,180,41,0.06); border:1px solid rgba(240,180,41,0.25);
+    border-radius:10px; padding:14px 16px; font-size:12.5px; color:var(--muted); line-height:1.6;
+  }
+  .banner b{color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em;}
+  .banner code{color:var(--teal);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Demo funcional</div>
+  <h1>Mis <span>notas</span></h1>
+  <p class="subtitle">Cada nota se guarda directamente en <b style="color:var(--text)">Supabase</b>. La interfaz responde al instante y sincroniza con la nube.</p>
+
+  <div class="status-badge checking" id="statusBadge">
+    <div class="led"></div>
+    <span id="statusLabel">conectando con Supabase…</span>
+  </div>
+
+  <div class="panel">
+    <div class="input-row">
+      <input type="text" id="noteInput" placeholder="Escribe una nota y presiona Enter…" maxlength="200">
+      <button class="add" id="addBtn">Agregar</button>
+    </div>
+
+    <div class="list" id="list"></div>
+    <div class="empty" id="emptyMsg" style="display:none;">— no hay notas guardadas todavía —</div>
+
+    <div class="footer-row">
+      <div class="count" id="count"><b>0</b> notas guardadas</div>
+      <button class="clear" id="clearBtn">Borrar todo</button>
+    </div>
+
+    <div class="note-status">
+      <span id="statusText" class="ok"></span>
+    </div>
+  </div>
+
+  <div class="banner">
+    <b>Cómo funciona</b><br>
+    Esta página está conectada directamente a una base de datos PostgreSQL en <b>Supabase</b>. No requiere un servidor intermedio (Node.js/PHP). Los datos persisten en la nube y puedes acceder a ellos desde cualquier dispositivo si usas las mismas credenciales.
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------
+  // 1. CONFIGURACIÓN (¡REEMPLAZA ESTOS VALORES!)
+  // ---------------------------------------------------------
+  const SUPABASE_URL = 'https://yqnyqybiqazkjkyvxwse.supabase.co'; 
+  const SUPABASE_KEY = 'sb_publishable_lswy6fkcenCt6YCQBpUTcg_pJ1bFpfn';
+  const TABLE_NAME = 'notas'; 
+
+  // Creamos el cliente con el nombre 'sb' para evitar conflictos
+  const sb = window.supabase.createClient('https://yqnyqybiqazkjkyvxwse.supabase.co', 'sb_publishable_lswy6fkcenCt6YCQBpUTcg_pJ1bFpfn');
+  
+  // Verificación en consola (debe decir 'true')
+  console.log('Cliente Supabase listo:', typeof sb.from === 'function');
+
+  // ---------------------------------------------------------
+  // 2. ELEMENTOS DEL DOM
+  // ---------------------------------------------------------
+  const input = document.getElementById('noteInput');
+  const addBtn = document.getElementById('addBtn');
+  const list = document.getElementById('list');
+  const emptyMsg = document.getElementById('emptyMsg');
+  const countEl = document.getElementById('count');
+  const clearBtn = document.getElementById('clearBtn');
+  const statusText = document.getElementById('statusText');
+  const statusBadge = document.getElementById('statusBadge');
+  const statusLabel = document.getElementById('statusLabel');
+
+  let isConnected = false;
+
+  function setBadge(status){
+    if(status === 'online'){
+      isConnected = true;
+      statusBadge.className = 'status-badge online';
+      statusLabel.textContent = 'conectado a Supabase';
+    } else {
+      isConnected = false;
+      statusBadge.className = 'status-badge offline';
+      statusLabel.textContent = 'error de conexión';
+    }
+  }
+
+  function flashStatus(msg){
+    statusText.textContent = msg;
+    statusText.classList.add('show');
+    clearTimeout(flashStatus._t);
+    flashStatus._t = setTimeout(()=>statusText.classList.remove('show'), 2000);
+  }
+
+  // ---------------------------------------------------------
+  // 3. FUNCIONES DE LA BASE DE DATOS (Usando 'sb')
+  // ---------------------------------------------------------
+  
+  function render(notes){
+    list.innerHTML = '';
+    emptyMsg.style.display = notes.length ? 'none' : 'block';
+    countEl.innerHTML = `<b>${notes.length}</b> nota${notes.length===1?'':'s'} guardada${notes.length===1?'':'s'}`;
+    
+    notes.slice().reverse().forEach((n) => {
+      const row = document.createElement('div');
+      row.className = 'note';
+      const internalId = n.uuid || n.id; 
+      
+      row.innerHTML = `
+        <div class="dot"></div>
+        <span></span>
+        <time>${n.time || ''}</time>
+        <button class="del" title="Eliminar">✕</button>
+      `;
+      row.querySelector('span').textContent = n.text;
+      row.querySelector('.del').addEventListener('click', () => deleteNote(internalId));
+      list.appendChild(row);
+    });
+  }
+
+  async function loadNotes(){
+    try {
+      // ¡AQUÍ ESTABA EL ERROR! Ahora usamos 'sb' en lugar de 'supabase'
+      const { data, error } = await sb
+        .from(TABLE_NAME)
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+      
+      setBadge('online');
+      render(data || []);
+    } catch (err) {
+      console.error('Error cargando notas:', err);
+      setBadge('offline');
+      flashStatus('Error al cargar datos de Supabase');
+    }
+  }
+
+  async function addNote(){
+    const text = input.value.trim();
+    if(!text) return;
+
+    addBtn.disabled = true;
+    input.disabled = true;
+
+    const noteData = {
+      text: text,
+      time: new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'}),
+      uuid: Date.now().toString(36) + Math.random().toString(36).slice(2,6)
+    };
+
+    try {
+      const { data, error } = await sb
+        .from(TABLE_NAME)
+        .insert([noteData])
+        .select();
+
+      if (error) throw error;
+
+      input.value = '';
+      flashStatus('guardado en Supabase ✓');
+      await loadNotes();
+    } catch (err) {
+      console.error('Error al agregar:', err);
+      flashStatus('Error al guardar');
+    } finally {
+      addBtn.disabled = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  async function deleteNote(uuid){
+    try {
+      const { error } = await sb
+        .from(TABLE_NAME)
+        .delete()
+        .eq('uuid', uuid);
+
+      if (error) throw error;
+
+      flashStatus('nota eliminada');
+      await loadNotes();
+    } catch (err) {
+      console.error('Error al eliminar:', err);
+      flashStatus('Error al eliminar');
+    }
+  }
+
+  clearBtn.addEventListener('click', async () => {
+    if(!confirm('¿Estás seguro de borrar todas las notas?')) return;
+    
+    try {
+      const { data } = await sb.from(TABLE_NAME).select('id');
+      if(data && data.length > 0) {
+         const ids = data.map(item => item.id);
+         const { error } = await sb.from(TABLE_NAME).delete().in('id', ids);
+         if(error) throw error;
+      }
+      flashStatus('todo borrado');
+      await loadNotes();
+    } catch(e) {
+      console.error(e);
+      flashStatus('Error al limpiar');
+    }
+  });
+
+  // ---------------------------------------------------------
+  // 4. EVENTOS E INICIO
+  // ---------------------------------------------------------
+  addBtn.addEventListener('click', addNote);
+  input.addEventListener('keydown', (e) => { if(e.key === 'Enter') addNote(); });
+
+  (async function init(){
+    await loadNotes();
+  })();
+</script>
+</body>
+</html>
