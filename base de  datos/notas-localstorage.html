@@ -2,10 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Notas — localStorage + Base de datos</title>
+<title>Notas — Supabase</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- Librería de Supabase -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root{
@@ -128,11 +129,11 @@
 <div class="wrap">
   <div class="eyebrow">Demo funcional</div>
   <h1>Mis <span>notas</span></h1>
-  <p class="subtitle">Cada nota se guarda en <code style="color:var(--teal)">localStorage</code> como caché local y, si el servidor está disponible, también se envía a una <b style="color:var(--text)">base de datos SQLite</b> vía API para persistencia real.</p>
+  <p class="subtitle">Cada nota se guarda directamente en <b style="color:var(--text)">Supabase</b>. La interfaz responde al instante y sincroniza con la nube.</p>
 
   <div class="status-badge checking" id="statusBadge">
     <div class="led"></div>
-    <span id="statusLabel">comprobando conexión al servidor…</span>
+    <span id="statusLabel">conectando con Supabase…</span>
   </div>
 
   <div class="panel">
@@ -156,14 +157,27 @@
 
   <div class="banner">
     <b>Cómo funciona</b><br>
-    Esta página intenta conectarse a <code>http://localhost:3000/api/notes</code>. Si el servidor (<code>server.js</code>, incluido junto a este archivo) está corriendo, cada nota se guarda en una base de datos SQLite real y <code>localStorage</code> actúa solo como caché local para carga instantánea. Si el servidor no responde, la app sigue funcionando en modo local, guardando únicamente en <code>localStorage</code>. Ejecuta <code>npm install &amp;&amp; npm start</code> en la carpeta del servidor para activar el modo con base de datos.
+    Esta página está conectada directamente a una base de datos PostgreSQL en <b>Supabase</b>. No requiere un servidor intermedio (Node.js/PHP). Los datos persisten en la nube y puedes acceder a ellos desde cualquier dispositivo si usas las mismas credenciales.
   </div>
 </div>
 
 <script>
-  const STORAGE_KEY = 'notas_app_v1';
-  const API_BASE = 'http://localhost:3000/api/notes';
+  // ---------------------------------------------------------
+  // 1. CONFIGURACIÓN (¡REEMPLAZA ESTOS VALORES!)
+  // ---------------------------------------------------------
+  const SUPABASE_URL = 'https://yqnyqybiqazkjkyvxwse.supabase.co'; 
+  const SUPABASE_KEY = 'sb_publishable_lswy6fkcenCt6YCQBpUTcg_pJ1bFpfn';
+  const TABLE_NAME = 'notas'; 
 
+  // Creamos el cliente con el nombre 'sb' para evitar conflictos
+  const sb = window.supabase.createClient('https://yqnyqybiqazkjkyvxwse.supabase.co', 'sb_publishable_lswy6fkcenCt6YCQBpUTcg_pJ1bFpfn');
+  
+  // Verificación en consola (debe decir 'true')
+  console.log('Cliente Supabase listo:', typeof sb.from === 'function');
+
+  // ---------------------------------------------------------
+  // 2. ELEMENTOS DEL DOM
+  // ---------------------------------------------------------
   const input = document.getElementById('noteInput');
   const addBtn = document.getElementById('addBtn');
   const list = document.getElementById('list');
@@ -174,14 +188,18 @@
   const statusBadge = document.getElementById('statusBadge');
   const statusLabel = document.getElementById('statusLabel');
 
-  let mode = 'checking'; // 'online' (con base de datos) | 'offline' (solo localStorage)
+  let isConnected = false;
 
-  function setBadge(newMode){
-    mode = newMode;
-    statusBadge.className = 'status-badge ' + newMode;
-    if(newMode === 'online') statusLabel.textContent = 'conectado a la base de datos';
-    else if(newMode === 'offline') statusLabel.textContent = 'modo local (solo localStorage)';
-    else statusLabel.textContent = 'comprobando conexión al servidor…';
+  function setBadge(status){
+    if(status === 'online'){
+      isConnected = true;
+      statusBadge.className = 'status-badge online';
+      statusLabel.textContent = 'conectado a Supabase';
+    } else {
+      isConnected = false;
+      statusBadge.className = 'status-badge offline';
+      statusLabel.textContent = 'error de conexión';
+    }
   }
 
   function flashStatus(msg){
@@ -191,60 +209,20 @@
     flashStatus._t = setTimeout(()=>statusText.classList.remove('show'), 2000);
   }
 
-  function loadLocal(){
-    try{
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    }catch(e){ return []; }
-  }
-
-  function saveLocal(notes){
-    try{ window.localStorage.setItem(STORAGE_KEY, JSON.stringify(notes)); }catch(e){}
-  }
-
-  async function fetchWithTimeout(url, options = {}, ms = 1500){
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
-    try{
-      const res = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(timer);
-      return res;
-    }catch(e){
-      clearTimeout(timer);
-      throw e;
-    }
-  }
-
-  async function checkServer(){
-    try{
-      const res = await fetchWithTimeout(API_BASE);
-      return res.ok;
-    }catch(e){ return false; }
-  }
-
-  async function loadNotes(){
-    if(mode === 'online'){
-      try{
-        const res = await fetchWithTimeout(API_BASE);
-        if(!res.ok) throw new Error('respuesta no-ok');
-        const data = await res.json();
-        saveLocal(data); // sincroniza la caché local
-        return data;
-      }catch(e){
-        setBadge('offline');
-        flashStatus('se perdió la conexión al servidor, usando localStorage');
-      }
-    }
-    return loadLocal();
-  }
-
+  // ---------------------------------------------------------
+  // 3. FUNCIONES DE LA BASE DE DATOS (Usando 'sb')
+  // ---------------------------------------------------------
+  
   function render(notes){
     list.innerHTML = '';
     emptyMsg.style.display = notes.length ? 'none' : 'block';
     countEl.innerHTML = `<b>${notes.length}</b> nota${notes.length===1?'':'s'} guardada${notes.length===1?'':'s'}`;
+    
     notes.slice().reverse().forEach((n) => {
       const row = document.createElement('div');
       row.className = 'note';
+      const internalId = n.uuid || n.id; 
+      
       row.innerHTML = `
         <div class="dot"></div>
         <span></span>
@@ -252,84 +230,107 @@
         <button class="del" title="Eliminar">✕</button>
       `;
       row.querySelector('span').textContent = n.text;
-      row.querySelector('.del').addEventListener('click', () => deleteNote(n.id));
+      row.querySelector('.del').addEventListener('click', () => deleteNote(internalId));
       list.appendChild(row);
     });
   }
 
-  async function refresh(){
-    const notes = await loadNotes();
-    render(notes);
+  async function loadNotes(){
+    try {
+      // ¡AQUÍ ESTABA EL ERROR! Ahora usamos 'sb' en lugar de 'supabase'
+      const { data, error } = await sb
+        .from(TABLE_NAME)
+        .select('*')
+        .order('id', { ascending: false });
+
+      if (error) throw error;
+      
+      setBadge('online');
+      render(data || []);
+    } catch (err) {
+      console.error('Error cargando notas:', err);
+      setBadge('offline');
+      flashStatus('Error al cargar datos de Supabase');
+    }
   }
 
   async function addNote(){
     const text = input.value.trim();
     if(!text) return;
-    const note = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
-      text,
-      time: new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'})
+
+    addBtn.disabled = true;
+    input.disabled = true;
+
+    const noteData = {
+      text: text,
+      time: new Date().toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'}),
+      uuid: Date.now().toString(36) + Math.random().toString(36).slice(2,6)
     };
 
-    // Guardado local inmediato (optimista)
-    const local = loadLocal();
-    local.push(note);
-    saveLocal(local);
-    input.value = '';
-    render(local);
+    try {
+      const { data, error } = await sb
+        .from(TABLE_NAME)
+        .insert([noteData])
+        .select();
 
-    if(mode === 'online'){
-      try{
-        const res = await fetchWithTimeout(API_BASE, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(note)
-        });
-        if(!res.ok) throw new Error('fallo al guardar');
-        flashStatus('guardado en la base de datos ✓');
-      }catch(e){
-        setBadge('offline');
-        flashStatus('servidor no disponible — guardado solo en localStorage');
-      }
-    } else {
-      flashStatus('guardado en localStorage (sin conexión al servidor)');
+      if (error) throw error;
+
+      input.value = '';
+      flashStatus('guardado en Supabase ✓');
+      await loadNotes();
+    } catch (err) {
+      console.error('Error al agregar:', err);
+      flashStatus('Error al guardar');
+    } finally {
+      addBtn.disabled = false;
+      input.disabled = false;
+      input.focus();
     }
   }
 
-  async function deleteNote(id){
-    const local = loadLocal().filter(n => n.id !== id);
-    saveLocal(local);
-    render(local);
+  async function deleteNote(uuid){
+    try {
+      const { error } = await sb
+        .from(TABLE_NAME)
+        .delete()
+        .eq('uuid', uuid);
 
-    if(mode === 'online'){
-      try{
-        const res = await fetchWithTimeout(`${API_BASE}/${id}`, { method: 'DELETE' });
-        if(!res.ok) throw new Error('fallo al eliminar');
-      }catch(e){
-        setBadge('offline');
-        flashStatus('no se pudo eliminar en el servidor');
-      }
+      if (error) throw error;
+
+      flashStatus('nota eliminada');
+      await loadNotes();
+    } catch (err) {
+      console.error('Error al eliminar:', err);
+      flashStatus('Error al eliminar');
     }
   }
-
-  addBtn.addEventListener('click', addNote);
-  input.addEventListener('keydown', (e) => { if(e.key === 'Enter') addNote(); });
 
   clearBtn.addEventListener('click', async () => {
-    saveLocal([]);
-    render([]);
-    if(mode === 'online'){
-      try{
-        await fetchWithTimeout(API_BASE, { method: 'DELETE' });
-      }catch(e){ /* silencioso */ }
+    if(!confirm('¿Estás seguro de borrar todas las notas?')) return;
+    
+    try {
+      const { data } = await sb.from(TABLE_NAME).select('id');
+      if(data && data.length > 0) {
+         const ids = data.map(item => item.id);
+         const { error } = await sb.from(TABLE_NAME).delete().in('id', ids);
+         if(error) throw error;
+      }
+      flashStatus('todo borrado');
+      await loadNotes();
+    } catch(e) {
+      console.error(e);
+      flashStatus('Error al limpiar');
     }
   });
 
+  // ---------------------------------------------------------
+  // 4. EVENTOS E INICIO
+  // ---------------------------------------------------------
+  addBtn.addEventListener('click', addNote);
+  input.addEventListener('keydown', (e) => { if(e.key === 'Enter') addNote(); });
+
   (async function init(){
-    render(loadLocal()); // pinta la caché local al instante, sin esperar la red
-    const online = await checkServer();
-    setBadge(online ? 'online' : 'offline');
-    await refresh();
+    await loadNotes();
   })();
 </script>
 </body>
